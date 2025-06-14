@@ -92,25 +92,42 @@ export interface ChapterAttributes {
   readableAt: string
 }
 
-// Helper function to get primary English title - ALWAYS use title.en first
+// Enhanced title matching function
 export function getPrimaryEnglishTitle(manga: Manga): string {
-  // ALWAYS prioritize the primary English title from title.en
-  if (manga.attributes.title.en) {
-    return manga.attributes.title.en
-  }
+  // Priority order for title selection
+  const titlePriority = [
+    'en',      // Primary English
+    'en-us',   // US English
+    'en-gb',   // UK English
+  ]
   
-  // If no primary English title, try other languages in order of preference
-  const titleKeys = Object.keys(manga.attributes.title)
-  const preferredOrder = ['en-us', 'ja-ro', 'ja']
-  
-  for (const lang of preferredOrder) {
+  // First, try to get the best English title
+  for (const lang of titlePriority) {
     if (manga.attributes.title[lang]) {
       return manga.attributes.title[lang]
     }
   }
   
-  // Fallback to first available title
-  return Object.values(manga.attributes.title)[0] || 'Unknown Title'
+  // If no English title found, check alternative titles
+  for (const altTitle of manga.attributes.altTitles || []) {
+    for (const lang of titlePriority) {
+      if (altTitle[lang]) {
+        return altTitle[lang]
+      }
+    }
+  }
+  
+  // Fallback to romanized Japanese or any available title
+  const fallbackOrder = ['ja-ro', 'romaji', 'ja']
+  for (const lang of fallbackOrder) {
+    if (manga.attributes.title[lang]) {
+      return manga.attributes.title[lang]
+    }
+  }
+  
+  // Last resort: first available title
+  const firstTitle = Object.values(manga.attributes.title)[0]
+  return firstTitle || 'Unknown Title'
 }
 
 // Helper function to correctly format query parameters for MangaDx API

@@ -21,6 +21,14 @@ import {
   Monitor,
   Smartphone,
   Tablet,
+  Volume2,
+  VolumeX,
+  SkipBack,
+  SkipForward,
+  Bookmark,
+  Share2,
+  Eye,
+  EyeOff,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Slider } from "@/components/ui/slider"
@@ -45,6 +53,7 @@ import { titleToSlug } from "@/lib/slugify"
 
 type ReadingMode = "single" | "double" | "vertical" | "webtoon"
 type Direction = "ltr" | "rtl"
+type FlipDirection = "horizontal" | "vertical"
 
 interface DownloadedChapter {
   id: string
@@ -98,6 +107,16 @@ export default function ReaderPage() {
   const [pageTransition, setPageTransition] = useState(false)
   const [downloading, setDownloading] = useState(false)
   const [isOffline, setIsOffline] = useState(false)
+  
+  // New advanced features
+  const [flipDirection, setFlipDirection] = useState<FlipDirection>("horizontal")
+  const [flipAnimation, setFlipAnimation] = useState(true)
+  const [soundEnabled, setSoundEnabled] = useState(false)
+  const [immersiveMode, setImmersiveMode] = useState(false)
+  const [preloadPages, setPreloadPages] = useState(3)
+  const [smoothScrolling, setSmoothScrolling] = useState(true)
+  const [gestureEnabled, setGestureEnabled] = useState(true)
+  const [bookmarkCurrentPage, setBookmarkCurrentPage] = useState(false)
 
   // Data state
   const [kitsuManga, setKitsuManga] = useState<KitsuManga | null>(null)
@@ -107,25 +126,29 @@ export default function ReaderPage() {
 
   // Refs
   const readerRef = useRef<HTMLDivElement>(null)
+  const pageRef = useRef<HTMLDivElement>(null)
   const autoHideTimer = useRef<NodeJS.Timeout | null>(null)
   const autoPlayTimer = useRef<NodeJS.Timeout | null>(null)
   const loadingStates = useRef<Set<number>>(new Set())
-  const fetchInProgress = useRef(false)
+  const touchStartX = useRef<number>(0)
+  const touchStartY = useRef<number>(0)
+  const gestureThreshold = 50
+
   // Auto-hide controls functionality
   const hideControlsAfterDelay = useCallback(() => {
     if (autoHideTimer.current) {
       clearTimeout(autoHideTimer.current)
     }
     const timer = setTimeout(() => {
-      setShowControls(false)
+      if (!immersiveMode) setShowControls(false)
     }, 3000)
     autoHideTimer.current = timer
-  }, [])
+  }, [immersiveMode])
 
   const showControlsTemporarily = useCallback(() => {
     setShowControls(true)
-    hideControlsAfterDelay()
-  }, [hideControlsAfterDelay])
+    if (!immersiveMode) hideControlsAfterDelay()
+  }, [hideControlsAfterDelay, immersiveMode])
 
   // Auto-play functionality
   useEffect(() => {
@@ -149,6 +172,53 @@ export default function ReaderPage() {
     document.addEventListener("fullscreenchange", handleFullscreenChange)
     return () => document.removeEventListener("fullscreenchange", handleFullscreenChange)
   }, [])
+
+  // Touch gesture handling
+  useEffect(() => {
+    if (!gestureEnabled) return
+
+    const handleTouchStart = (e: TouchEvent) => {
+      touchStartX.current = e.touches[0].clientX
+      touchStartY.current = e.touches[0].clientY
+    }
+
+    const handleTouchEnd = (e: TouchEvent) => {
+      const touchEndX = e.changedTouches[0].clientX
+      const touchEndY = e.changedTouches[0].clientY
+      const deltaX = touchEndX - touchStartX.current
+      const deltaY = touchEndY - touchStartY.current
+
+      if (Math.abs(deltaX) > gestureThreshold && Math.abs(deltaX) > Math.abs(deltaY)) {
+        // Horizontal swipe
+        if (deltaX > 0) {
+          // Swipe right
+          direction === "rtl" ? prevPage() : nextPage()
+        } else {
+          // Swipe left
+          direction === "rtl" ? nextPage() : prevPage()
+        }
+      } else if (Math.abs(deltaY) > gestureThreshold && readingMode === "webtoon") {
+        // Vertical swipe for webtoon mode
+        if (deltaY > 0) {
+          // Swipe down
+          prevPage()
+        } else {
+          // Swipe up
+          nextPage()
+        }
+      }
+    }
+
+    const element = readerRef.current
+    if (element) {
+      element.addEventListener('touchstart', handleTouchStart)
+      element.addEventListener('touchend', handleTouchEnd)
+      return () => {
+        element.removeEventListener('touchstart', handleTouchStart)
+        element.removeEventListener('touchend', handleTouchEnd)
+      }
+    }
+  }, [gestureEnabled, direction, readingMode])
 
   const loadImageWithRetry = useCallback(async (pageIndex: number, url: string, retries = 3) => {
     if (loadingStates.current.has(pageIndex)) {
@@ -247,7 +317,7 @@ export default function ReaderPage() {
       console.error('Error checking offline content:', error)
     }
     return false
-  }, [chapterIdFromUrl, initialPage]) // Remove mangaDxId from dependencies  
+  }, [chapterIdFromUrl, initialPage])
 
   // Update URL when page changes
   const updateURL = useCallback((page: number) => {
@@ -259,7 +329,7 @@ export default function ReaderPage() {
     
     const newUrl = `/reader/${mangaSlugParam}/${page}?chapter=${chapterId}`
     window.history.replaceState(null, '', newUrl)
-  }, [mangaSlugParam, currentMangaDxChapter?.id]) // Only depend on chapter ID, not the whole object
+  }, [mangaSlugParam, currentMangaDxChapter?.id])
   
   // Main data fetching effect
   useEffect(() => {
@@ -404,11 +474,19 @@ export default function ReaderPage() {
         pagesToLoad.push(currentPage - 1)
       }
 
-      // Next few pages
-      for (let i = 1; i <= 3; i++) {
+      // Preload next pages
+      for (let i = 1; i <= preloadPages; i++) {
         const nextPage = currentPage + i
         if (nextPage <= totalPages) {
           pagesToLoad.push(nextPage - 1)
+        }
+      }
+
+      // Preload previous pages
+      for (let i = 1; i <= Math.min(preloadPages, 2); i++) {
+        const prevPage = currentPage - i
+        if (prevPage >= 1) {
+          pagesToLoad.push(prevPage - 1)
         }
       }
 
@@ -418,12 +496,44 @@ export default function ReaderPage() {
         }
       })
     }
-  }, [currentPage, imageUrls, totalPages, readingMode, loadImageWithRetry])
+  }, [currentPage, imageUrls, totalPages, readingMode, loadImageWithRetry, preloadPages])
 
-  // Navigation functions
+  // Play sound effect
+  const playSound = useCallback((type: 'flip' | 'click') => {
+    if (!soundEnabled) return
+    
+    // Create audio context for sound effects
+    try {
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+      const oscillator = audioContext.createOscillator()
+      const gainNode = audioContext.createGain()
+      
+      oscillator.connect(gainNode)
+      gainNode.connect(audioContext.destination)
+      
+      if (type === 'flip') {
+        oscillator.frequency.setValueAtTime(800, audioContext.currentTime)
+        oscillator.frequency.exponentialRampToValueAtTime(400, audioContext.currentTime + 0.1)
+      } else {
+        oscillator.frequency.setValueAtTime(1000, audioContext.currentTime)
+      }
+      
+      gainNode.gain.setValueAtTime(0.1, audioContext.currentTime)
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1)
+      
+      oscillator.start(audioContext.currentTime)
+      oscillator.stop(audioContext.currentTime + 0.1)
+    } catch (error) {
+      // Ignore audio errors
+    }
+  }, [soundEnabled])
+
+  // Navigation functions with flip animation
   const nextPage = useCallback(() => {
-    setPageTransition(true)
-    setTimeout(() => setPageTransition(false), 300)
+    if (flipAnimation) {
+      setPageTransition(true)
+      setTimeout(() => setPageTransition(false), 300)
+    }
 
     const increment = readingMode === "double" ? 2 : 1
     const newPage = Math.min(currentPage + increment, totalPages)
@@ -432,14 +542,17 @@ export default function ReaderPage() {
       setCurrentPage(newPage)
       updateURL(newPage)
       saveReadingProgress(newPage)
+      playSound('flip')
     } else if (currentPage === totalPages) {
       goToNextChapter()
     }
-  }, [currentPage, totalPages, readingMode, updateURL, saveReadingProgress])
+  }, [currentPage, totalPages, readingMode, updateURL, saveReadingProgress, flipAnimation, playSound])
 
   const prevPage = useCallback(() => {
-    setPageTransition(true)
-    setTimeout(() => setPageTransition(false), 300)
+    if (flipAnimation) {
+      setPageTransition(true)
+      setTimeout(() => setPageTransition(false), 300)
+    }
 
     const decrement = readingMode === "double" ? 2 : 1
     const newPage = Math.max(currentPage - decrement, 1)
@@ -448,10 +561,11 @@ export default function ReaderPage() {
       setCurrentPage(newPage)
       updateURL(newPage)
       saveReadingProgress(newPage)
+      playSound('flip')
     } else if (currentPage === 1) {
       goToPrevChapter()
     }
-  }, [currentPage, readingMode, updateURL, saveReadingProgress])
+  }, [currentPage, readingMode, updateURL, saveReadingProgress, flipAnimation, playSound])
 
   const goToNextChapter = useCallback(() => {
     if (!currentMangaDxChapter || !mangaSlugParam) return
@@ -491,7 +605,11 @@ export default function ReaderPage() {
         case "ArrowUp":
           e.preventDefault()
           if (readingMode === "vertical" || readingMode === "webtoon") {
-            readerRef.current?.scrollBy(0, -100)
+            if (smoothScrolling) {
+              readerRef.current?.scrollBy({ top: -100, behavior: 'smooth' })
+            } else {
+              readerRef.current?.scrollBy(0, -100)
+            }
           } else {
             prevPage()
           }
@@ -499,7 +617,11 @@ export default function ReaderPage() {
         case "ArrowDown":
           e.preventDefault()
           if (readingMode === "vertical" || readingMode === "webtoon") {
-            readerRef.current?.scrollBy(0, 100)
+            if (smoothScrolling) {
+              readerRef.current?.scrollBy({ top: 100, behavior: 'smooth' })
+            } else {
+              readerRef.current?.scrollBy(0, 100)
+            }
           } else {
             nextPage()
           }
@@ -520,13 +642,19 @@ export default function ReaderPage() {
         case "s":
           setShowSettings(!showSettings)
           break
+        case "i":
+          setImmersiveMode(!immersiveMode)
+          break
+        case "b":
+          setBookmarkCurrentPage(!bookmarkCurrentPage)
+          break
       }
       showControlsTemporarily()
     }
 
     window.addEventListener("keydown", handleKeyPress)
     return () => window.removeEventListener("keydown", handleKeyPress)
-  }, [currentPage, totalPages, router, showControlsTemporarily, mangaDxId, direction, readingMode, showControls, showSettings, nextPage, prevPage])
+  }, [currentPage, totalPages, router, showControlsTemporarily, mangaDxId, direction, readingMode, showControls, showSettings, nextPage, prevPage, immersiveMode, bookmarkCurrentPage, smoothScrolling])
 
   const toggleFullscreen = useCallback(() => {
     if (!document.fullscreenElement) {
@@ -621,11 +749,20 @@ export default function ReaderPage() {
     return (
       <div
         key={pageIndex}
+        ref={pageIndex === currentPage - 1 ? pageRef : undefined}
         className={`relative flex-shrink-0 ${
           readingMode === "double" ? "w-1/2" : "w-full"
         } h-full flex items-center justify-center ${
-          pageTransition ? "transition-transform duration-300 ease-in-out" : ""
+          pageTransition && flipAnimation ? 
+            `transition-transform duration-300 ease-in-out ${
+              flipDirection === "horizontal" ? "transform-gpu" : "transform-gpu"
+            }` : ""
         }`}
+        style={{
+          transform: pageTransition && flipAnimation ? 
+            (flipDirection === "horizontal" ? "rotateY(10deg)" : "rotateX(10deg)") : 
+            "none"
+        }}
       >
         {isLoaded ? (
           <Image
@@ -635,7 +772,7 @@ export default function ReaderPage() {
             height={1200}
             className={`max-w-full max-h-full object-contain ${
               readingMode === "vertical" || readingMode === "webtoon" ? "w-full h-auto" : "h-full w-auto"
-            }`}
+            } ${flipAnimation ? "transition-transform duration-300" : ""}`}
             style={{
               transform: `scale(${zoom / 100})`,
               filter: darkMode ? "none" : "brightness(1.1) contrast(1.05)",
@@ -648,9 +785,16 @@ export default function ReaderPage() {
             <div className="animate-pulse w-1/2 h-1/2 bg-gray-700 rounded-md" />
           </div>
         )}
+        
+        {/* Page number overlay */}
+        {!immersiveMode && (
+          <div className="absolute bottom-4 right-4 bg-black/70 text-white px-2 py-1 rounded text-sm">
+            {pageIndex + 1}
+          </div>
+        )}
       </div>
     )
-  }, [loadedImages, readingMode, pageTransition, zoom, darkMode, currentPage])
+  }, [loadedImages, readingMode, pageTransition, zoom, darkMode, currentPage, flipAnimation, flipDirection, immersiveMode])
 
   // Early returns for loading and error states
   if (loading) {
@@ -703,7 +847,9 @@ export default function ReaderPage() {
     <TooltipProvider>
       <div
         ref={readerRef}
-        className={`min-h-screen ${darkMode ? "bg-black" : "bg-gray-100"} relative overflow-hidden select-none`}
+        className={`min-h-screen ${darkMode ? "bg-black" : "bg-gray-100"} relative overflow-hidden select-none ${
+          immersiveMode ? "cursor-none" : ""
+        }`}
         onClick={showControlsTemporarily}
       >
         {/* Navigation Zones */}
@@ -725,7 +871,7 @@ export default function ReaderPage() {
         {/* Top Controls */}
         <div
           className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
-            showControls ? "translate-y-0 opacity-100" : "-translate-y-full opacity-0"
+            showControls && !immersiveMode ? "translate-y-0 opacity-100" : "-translate-y-full opacity-0"
           }`}
         >
           <div className="bg-black/95 backdrop-blur-md border-b border-gray-800/50">
@@ -755,6 +901,20 @@ export default function ReaderPage() {
               </div>
 
               <div className="flex items-center gap-2">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setImmersiveMode(!immersiveMode)}
+                      className={`text-white hover:bg-gray-800 ${immersiveMode ? "bg-red-600/20 text-red-400" : ""}`}
+                    >
+                      {immersiveMode ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>{immersiveMode ? "Exit Immersive Mode" : "Enter Immersive Mode"}</TooltipContent>
+                </Tooltip>
+
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
@@ -820,9 +980,9 @@ export default function ReaderPage() {
           </div>
         </div>
 
-        {/* Settings Panel */}
+        {/* Enhanced Settings Panel */}
         {showSettings && (
-          <div className="fixed top-16 right-4 z-50 w-80">
+          <div className="fixed top-16 right-4 z-50 w-96 max-h-[80vh] overflow-y-auto">
             <Card className="bg-gray-900/95 backdrop-blur-md border-gray-700">
               <CardContent className="p-4 space-y-4">
                 <div className="flex items-center justify-between">
@@ -837,7 +997,7 @@ export default function ReaderPage() {
                   </Button>
                 </div>
 
-                <div className="space-y-3">
+                <div className="space-y-4">
                   <div>
                     <label className="text-sm text-gray-300 block mb-2">Reading Mode</label>
                     <Select value={readingMode} onValueChange={(value: ReadingMode) => setReadingMode(value)}>
@@ -860,7 +1020,7 @@ export default function ReaderPage() {
                         <SelectItem value="vertical">
                           <div className="flex items-center gap-2">
                             <Monitor className="w-4 h-4" />
-                            Vertical
+                            Vertical Scroll
                           </div>
                         </SelectItem>
                         <SelectItem value="webtoon">
@@ -882,6 +1042,19 @@ export default function ReaderPage() {
                       <SelectContent>
                         <SelectItem value="rtl">Right to Left (Manga)</SelectItem>
                         <SelectItem value="ltr">Left to Right (Western)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div>
+                    <label className="text-sm text-gray-300 block mb-2">Flip Direction</label>
+                    <Select value={flipDirection} onValueChange={(value: FlipDirection) => setFlipDirection(value)}>
+                      <SelectTrigger className="bg-gray-800 border-gray-700 text-white">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="horizontal">Horizontal Flip</SelectItem>
+                        <SelectItem value="vertical">Vertical Flip</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -909,6 +1082,53 @@ export default function ReaderPage() {
                       className="w-full"
                     />
                   </div>
+
+                  <div>
+                    <label className="text-sm text-gray-300 block mb-2">Preload Pages: {preloadPages}</label>
+                    <Slider
+                      value={[preloadPages]}
+                      onValueChange={(value) => setPreloadPages(value[0])}
+                      min={1}
+                      max={10}
+                      step={1}
+                      className="w-full"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => setFlipAnimation(!flipAnimation)}
+                      className={`w-full justify-start border-gray-700 ${flipAnimation ? 'text-green-400' : 'text-gray-300'}`}
+                    >
+                      Flip Animation: {flipAnimation ? 'On' : 'Off'}
+                    </Button>
+
+                    <Button
+                      variant="outline"
+                      onClick={() => setSoundEnabled(!soundEnabled)}
+                      className={`w-full justify-start border-gray-700 ${soundEnabled ? 'text-green-400' : 'text-gray-300'}`}
+                    >
+                      {soundEnabled ? <Volume2 className="w-4 h-4 mr-2" /> : <VolumeX className="w-4 h-4 mr-2" />}
+                      Sound Effects: {soundEnabled ? 'On' : 'Off'}
+                    </Button>
+
+                    <Button
+                      variant="outline"
+                      onClick={() => setSmoothScrolling(!smoothScrolling)}
+                      className={`w-full justify-start border-gray-700 ${smoothScrolling ? 'text-green-400' : 'text-gray-300'}`}
+                    >
+                      Smooth Scrolling: {smoothScrolling ? 'On' : 'Off'}
+                    </Button>
+
+                    <Button
+                      variant="outline"
+                      onClick={() => setGestureEnabled(!gestureEnabled)}
+                      className={`w-full justify-start border-gray-700 ${gestureEnabled ? 'text-green-400' : 'text-gray-300'}`}
+                    >
+                      Touch Gestures: {gestureEnabled ? 'On' : 'Off'}
+                    </Button>
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -918,7 +1138,7 @@ export default function ReaderPage() {
         {/* Reading Area */}
         <div className="h-screen flex items-center justify-center p-4 pt-16 pb-20">
           {readingMode === "vertical" || readingMode === "webtoon" ? (
-            <div className="max-w-4xl mx-auto space-y-1 overflow-y-auto h-full">
+            <div className={`max-w-4xl mx-auto space-y-1 ${readingMode === "webtoon" ? "overflow-y-auto h-full" : ""}`}>
               {imageUrls.map((_, index) => renderPage(index))}
             </div>
           ) : readingMode === "double" ? (
@@ -943,7 +1163,7 @@ export default function ReaderPage() {
         {/* Bottom Controls */}
         <div
           className={`fixed bottom-0 left-0 right-0 z-50 transition-all duration-300 ${
-            showControls ? "translate-y-0 opacity-100" : "translate-y-full opacity-0"
+            showControls && !immersiveMode ? "translate-y-0 opacity-100" : "translate-y-full opacity-0"
           }`}
         >
           <div className="bg-black/95 backdrop-blur-md border-t border-gray-800/50">
@@ -959,10 +1179,24 @@ export default function ReaderPage() {
                       className="text-white hover:bg-gray-800"
                       disabled={!canGoToPrevChapter}
                     >
-                      <ChevronLeft className="w-4 h-4" />
+                      <SkipBack className="w-4 h-4" />
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>Previous Chapter</TooltipContent>
+                </Tooltip>
+
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={prevPage}
+                      className="text-white hover:bg-gray-800"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Previous Page</TooltipContent>
                 </Tooltip>
 
                 <div className="flex-1 px-2">
@@ -986,11 +1220,25 @@ export default function ReaderPage() {
                     <Button
                       variant="ghost"
                       size="sm"
+                      onClick={nextPage}
+                      className="text-white hover:bg-gray-800"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Next Page</TooltipContent>
+                </Tooltip>
+
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       onClick={goToNextChapter}
                       className="text-white hover:bg-gray-800"
                       disabled={!canGoToNextChapter}
                     >
-                      <ChevronRight className="w-4 h-4" />
+                      <SkipForward className="w-4 h-4" />
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>Next Chapter</TooltipContent>
@@ -1052,6 +1300,20 @@ export default function ReaderPage() {
                       <Button
                         variant="ghost"
                         size="sm"
+                        onClick={() => setBookmarkCurrentPage(!bookmarkCurrentPage)}
+                        className={`text-white hover:bg-gray-800 ${bookmarkCurrentPage ? 'text-blue-400' : ''}`}
+                      >
+                        <Bookmark className={`w-4 h-4 ${bookmarkCurrentPage ? 'fill-current' : ''}`} />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Bookmark Page</TooltipContent>
+                  </Tooltip>
+
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="sm"
                         onClick={handleScreenshot}
                         className="text-white hover:bg-gray-800"
                       >
@@ -1079,11 +1341,42 @@ export default function ReaderPage() {
                       </TooltipContent>
                     </Tooltip>
                   )}
+
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          if (navigator.share) {
+                            navigator.share({
+                              title: `${mangaTitle} - ${chapterTitle}`,
+                              url: window.location.href
+                            })
+                          } else {
+                            navigator.clipboard.writeText(window.location.href)
+                            toast.success("Link copied to clipboard!")
+                          }
+                        }}
+                        className="text-white hover:bg-gray-800"
+                      >
+                        <Share2 className="w-4 h-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Share</TooltipContent>
+                  </Tooltip>
                 </div>
               </div>
             </div>
           </div>
         </div>
+
+        {/* Keyboard shortcuts help */}
+        {showControls && !immersiveMode && (
+          <div className="fixed bottom-20 left-4 text-xs text-gray-400 bg-black/50 p-2 rounded">
+            <div>Shortcuts: ← → (navigate) | F (fullscreen) | H (hide UI) | I (immersive) | B (bookmark)</div>
+          </div>
+        )}
       </div>
     </TooltipProvider>
   )

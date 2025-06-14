@@ -19,6 +19,7 @@ export interface KitsuManga {
     titles: {
       en?: string
       en_jp?: string
+      en_us?: string
       ja_jp?: string
       [key: string]: string | undefined
     }
@@ -56,6 +57,9 @@ export interface KitsuManga {
       data?: {
         id: string
         type: "genres"
+        attributes?: {
+          name: string
+        }
       }[]
     }
     categories?: {
@@ -78,6 +82,9 @@ export interface KitsuManga {
       data?: {
         id: string
         type: "staff"
+        attributes?: {
+          name?: string
+        }
       }[]
     }
     // Add other relationships as needed
@@ -117,14 +124,14 @@ function formatKitsuQueryParams(params: Record<string, any>): string {
   return queryParts.join("&")
 }
 
-// Kitsu API functions
+// Enhanced search function with better matching
 export async function searchKitsuManga(query: string, limit = 20, offset = 0): Promise<KitsuResponse<KitsuManga>> {
   const params = {
     "filter[text]": query,
     "page[limit]": limit.toString(),
     "page[offset]": offset.toString(),
     "fields[manga]":
-      "canonicalTitle,titles,description,posterImage,coverImage,startDate,averageRating,status,chapterCount,volumeCount,mangaType",
+      "canonicalTitle,titles,description,posterImage,coverImage,startDate,averageRating,status,chapterCount,volumeCount,mangaType,popularityRank",
     include: "genres", // Include genres for filtering/display
     sort: "-popularityRank", // Sort by popularity for search relevance
   }
@@ -144,7 +151,7 @@ export async function getKitsuMangaDetails(id: string): Promise<KitsuResponse<Ki
   return response.json()
 }
 
-// New function to get manga by slug (canonicalTitle)
+// Enhanced function to get manga by slug with better title matching
 import { slugify } from "./slugify" // Import slugify helper
 
 export async function getKitsuMangaBySlug(slug: string): Promise<KitsuManga | null> {
@@ -165,14 +172,33 @@ export async function getKitsuMangaBySlug(slug: string): Promise<KitsuManga | nu
 
   console.log("getKitsuMangaBySlug: Kitsu API response data:", data.data) // Debug log the raw data
 
-  // Manually filter to find the exact slug match
+  // Enhanced matching algorithm
   const foundManga = data.data.find((manga) => {
-    const titleToSlugify = manga.attributes.canonicalTitle || manga.attributes.titles.en_jp || ""
-    const generatedSlug = slugify(titleToSlugify)
-    console.log(
-      `  Kitsu Manga ID: ${manga.id}, Title: "${titleToSlugify}", Generated Slug: "${generatedSlug}", Matches Input Slug: ${generatedSlug === slug}`,
-    ) // Detailed debug log for each item
-    return generatedSlug === slug
+    // Get all possible titles for this manga
+    const titles = [
+      manga.attributes.canonicalTitle,
+      manga.attributes.titles.en,
+      manga.attributes.titles.en_jp,
+      manga.attributes.titles.en_us,
+      manga.attributes.titles.ja_jp,
+      ...Object.values(manga.attributes.titles)
+    ].filter(Boolean)
+
+    // Check each title for a match
+    for (const title of titles) {
+      if (!title) continue
+      
+      const generatedSlug = slugify(title)
+      console.log(
+        `  Kitsu Manga ID: ${manga.id}, Title: "${title}", Generated Slug: "${generatedSlug}", Matches Input Slug: ${generatedSlug === slug}`,
+      ) // Detailed debug log for each item
+      
+      if (generatedSlug === slug) {
+        return true
+      }
+    }
+    
+    return false
   })
 
   console.log("getKitsuMangaBySlug: Found manga after filtering:", foundManga) // Debug log the final found manga
@@ -212,4 +238,26 @@ export function getKitsuPosterImage(posterImage: KitsuManga["attributes"]["poste
 
 export function getKitsuCoverImage(coverImage: KitsuManga["attributes"]["coverImage"]): string {
   return coverImage?.original || coverImage?.large || coverImage?.small || coverImage?.tiny || "/placeholder.svg"
+}
+
+// Enhanced title extraction function
+export function getBestKitsuTitle(manga: KitsuManga): string {
+  // Priority order for title selection
+  const titlePriority = [
+    manga.attributes.titles.en,        // Primary English
+    manga.attributes.titles.en_us,     // US English
+    manga.attributes.canonicalTitle,   // Canonical title
+    manga.attributes.titles.en_jp,     // English-Japanese
+  ]
+  
+  // Return the first available title from priority list
+  for (const title of titlePriority) {
+    if (title && title.trim()) {
+      return title.trim()
+    }
+  }
+  
+  // Fallback to any available title
+  const fallbackTitles = Object.values(manga.attributes.titles).filter(Boolean)
+  return fallbackTitles[0] || 'Unknown Title'
 }

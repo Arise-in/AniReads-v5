@@ -17,6 +17,15 @@ import { getMangaDxChapters, getMangaDxManga, getPrimaryEnglishTitle, type Chapt
 import LoadingSpinner from "@/components/loading-spinner"
 import { Button } from "@/components/ui/button"
 
+// Cache for manga data
+const mangaCache = new Map<string, {
+  kitsuManga: KitsuManga | null,
+  chapters: Chapter[],
+  timestamp: number
+}>()
+
+const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
+
 export default function MangaDetailPage() {
   const params = useParams()
   const router = useRouter()
@@ -33,6 +42,17 @@ export default function MangaDetailPage() {
       try {
         setLoading(true)
         console.log("MangaDetailPage: Processing slug:", slug)
+
+        // Check cache first
+        const cached = mangaCache.get(slug)
+        if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+          console.log("MangaDetailPage: Using cached data")
+          setKitsuManga(cached.kitsuManga)
+          setChapters(cached.chapters)
+          setMangaDxId(slug)
+          setLoading(false)
+          return
+        }
 
         // Check if slug is already a MangaDx ID (UUID format)
         const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(slug)
@@ -85,9 +105,67 @@ export default function MangaDetailPage() {
         // Search Kitsu for additional metadata using the MangaDx title
         let kitsuData: KitsuManga | null = null
         try {
-          const kitsuSearchData = await searchKitsuManga(mdTitle, 1)
-          kitsuData = kitsuSearchData.data[0] || null
-          console.log("MangaDetailPage: Kitsu manga found:", !!kitsuData)
+          // Try multiple search strategies for better matching
+          const searchStrategies = [
+            mdTitle, // Original title
+            mdTitle.replace(/[^\w\s]/g, ''), // Remove special characters
+            mdTitle.split(':')[0].trim(), // Take part before colon
+            mdTitle.split('(')[0].trim(), // Take part before parentheses
+          ]
+
+          for (const searchTerm of searchStrategies) {
+            if (kitsuData) break
+            
+            try {
+              const kitsuSearchData = await searchKitsuManga(searchTerm, 5)
+              
+              // Find best match based on title similarity
+              const bestMatch = kitsuSearchData.data.find(manga => {
+                const kitsuTitle = manga.attributes.canonicalTitle || 
+                                manga.attributes.titles.en_jp || 
+                                manga.attributes.titles.en || 
+                                Object.values(manga.attributes.titles)[0]
+                
+                if (!kitsuTitle) return false
+                
+                // Normalize titles for comparison
+                const normalizeTitle = (title: string) => 
+                  title.toLowerCase()
+                    .replace(/[^\w\s]/g, '')
+                    .replace(/\s+/g, ' ')
+                    .trim()
+                
+                const normalizedKitsu = normalizeTitle(kitsuTitle)
+                const normalizedMd = normalizeTitle(mdTitle)
+                const normalizedSearch = normalizeTitle(searchTerm)
+                
+                // Check for exact match or high similarity
+                return normalizedKitsu === normalizedMd || 
+                       normalizedKitsu === normalizedSearch ||
+                       normalizedKitsu.includes(normalizedSearch) ||
+                       normalizedSearch.includes(normalizedKitsu)
+              })
+              
+              if (bestMatch) {
+                kitsuData = bestMatch
+                console.log("MangaDetailPage: Found Kitsu match with strategy:", searchTerm)
+                break
+              }
+            } catch (error) {
+              console.warn(`MangaDetailPage: Kitsu search failed for "${searchTerm}":`, error)
+            }
+          }
+          
+          // Fallback to first result if no good match found
+          if (!kitsuData && searchStrategies.length > 0) {
+            try {
+              const fallbackSearch = await searchKitsuManga(mdTitle, 1)
+              kitsuData = fallbackSearch.data[0] || null
+              console.log("MangaDetailPage: Using fallback Kitsu result")
+            } catch (error) {
+              console.warn("MangaDetailPage: Fallback Kitsu search failed:", error)
+            }
+          }
         } catch (error) {
           console.warn("MangaDetailPage: Could not fetch Kitsu data:", error)
         }
@@ -109,6 +187,13 @@ export default function MangaDetailPage() {
         })
         setChapters(sortedChapters)
         console.log("MangaDetailPage: Chapters fetched:", sortedChapters.length)
+
+        // Cache the results
+        mangaCache.set(slug, {
+          kitsuManga: kitsuData,
+          chapters: sortedChapters,
+          timestamp: Date.now()
+        })
 
       } catch (error) {
         console.error("MangaDetailPage: Error fetching manga details:", error)
@@ -149,7 +234,12 @@ export default function MangaDetailPage() {
   const coverUrl = kitsuManga
     ? getKitsuCoverImage(kitsuManga.attributes.coverImage) || getKitsuPosterImage(kitsuManga.attributes.posterImage)
     : "/placeholder.svg?height=400&width=1200"
-  const title = kitsuManga?.attributes.canonicalTitle || kitsuManga?.attributes.titles.en_jp || "Unknown Title"
+  
+  // Get the best title - prioritize English titles
+  const title = kitsuManga?.attributes.canonicalTitle || 
+               kitsuManga?.attributes.titles.en || 
+               kitsuManga?.attributes.titles.en_jp || 
+               "Unknown Title"
 
   // Prepare manga data for library operations - use MangaDx ID as primary identifier
   const mangaData = {
@@ -164,8 +254,9 @@ export default function MangaDetailPage() {
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-900 text-white">
       <MangaBanner coverUrl={coverUrl} title={title} />
       <main className="container mx-auto p-4 -mt-20 md:-mt-24 relative z-10">
-        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-8">
-          <aside className="md:col-span-1 lg:col-span-1">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+          {/* Sidebar */}
+          <aside className="lg:col-span-3">
             <MangaHeader
               kitsuManga={kitsuManga}
               mangaData={mangaData}
@@ -173,7 +264,9 @@ export default function MangaDetailPage() {
               chapters={chapters}
             />
           </aside>
-          <div className="md:col-span-2 lg:col-span-3 space-y-8">
+          
+          {/* Main Content */}
+          <div className="lg:col-span-9 space-y-8">
             <MangaDetails
               kitsuManga={kitsuManga}
               chapters={chapters}
