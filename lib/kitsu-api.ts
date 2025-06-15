@@ -240,24 +240,54 @@ export function getKitsuCoverImage(coverImage: KitsuManga["attributes"]["coverIm
   return coverImage?.original || coverImage?.large || coverImage?.small || coverImage?.tiny || "/placeholder.svg"
 }
 
-// Enhanced title extraction function
+// Enhanced title extraction function with better English prioritization
 export function getBestKitsuTitle(manga: KitsuManga): string {
-  // Priority order for title selection
+  // Priority order for title selection - prioritize English titles
   const titlePriority = [
     manga.attributes.titles.en,        // Primary English
     manga.attributes.titles.en_us,     // US English
-    manga.attributes.canonicalTitle,   // Canonical title
-    manga.attributes.titles.en_jp,     // English-Japanese
+    manga.attributes.titles.en_jp,     // English-Japanese (often romanized)
   ]
   
-  // Return the first available title from priority list
+  // Return the first available English title from priority list
   for (const title of titlePriority) {
-    if (title && title.trim()) {
+    if (title && title.trim() && !isJapaneseText(title)) {
       return title.trim()
     }
   }
   
-  // Fallback to any available title
-  const fallbackTitles = Object.values(manga.attributes.titles).filter(Boolean)
-  return fallbackTitles[0] || 'Unknown Title'
+  // If no good English title found, check canonical title
+  const canonicalTitle = manga.attributes.canonicalTitle
+  if (canonicalTitle && !isJapaneseText(canonicalTitle)) {
+    return canonicalTitle.trim()
+  }
+  
+  // Last resort: use any available title, preferring shorter ones (likely English)
+  const allTitles = Object.values(manga.attributes.titles).filter(Boolean)
+  if (allTitles.length > 0) {
+    // Sort by length and prefer non-Japanese text
+    const sortedTitles = allTitles.sort((a, b) => {
+      const aIsJapanese = isJapaneseText(a!)
+      const bIsJapanese = isJapaneseText(b!)
+      
+      // Prefer non-Japanese titles
+      if (aIsJapanese && !bIsJapanese) return 1
+      if (!aIsJapanese && bIsJapanese) return -1
+      
+      // If both are same type, prefer shorter titles
+      return a!.length - b!.length
+    })
+    
+    return sortedTitles[0]!.trim()
+  }
+  
+  // Final fallback
+  return canonicalTitle || 'Unknown Title'
+}
+
+// Helper function to detect Japanese text
+function isJapaneseText(text: string): boolean {
+  // Check for Hiragana, Katakana, and Kanji characters
+  const japaneseRegex = /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]/
+  return japaneseRegex.test(text)
 }

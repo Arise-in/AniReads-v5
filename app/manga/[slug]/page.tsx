@@ -11,6 +11,7 @@ import {
   searchKitsuManga,
   getKitsuPosterImage,
   getKitsuCoverImage,
+  getBestKitsuTitle,
   type KitsuManga,
 } from "@/lib/kitsu-api"
 import { getMangaDxChapters, getMangaDxManga, getPrimaryEnglishTitle, type Chapter } from "@/lib/mangadx-api"
@@ -121,10 +122,7 @@ export default function MangaDetailPage() {
               
               // Find best match based on title similarity
               const bestMatch = kitsuSearchData.data.find(manga => {
-                const kitsuTitle = manga.attributes.canonicalTitle || 
-                                manga.attributes.titles.en_jp || 
-                                manga.attributes.titles.en || 
-                                Object.values(manga.attributes.titles)[0]
+                const kitsuTitle = getBestKitsuTitle(manga)
                 
                 if (!kitsuTitle) return false
                 
@@ -233,13 +231,10 @@ export default function MangaDetailPage() {
   const posterUrl = kitsuManga ? getKitsuPosterImage(kitsuManga.attributes.posterImage) : "/placeholder.svg"
   const coverUrl = kitsuManga
     ? getKitsuCoverImage(kitsuManga.attributes.coverImage) || getKitsuPosterImage(kitsuManga.attributes.posterImage)
-    : "/placeholder.svg?height=400&width=1200"
+    : null
   
   // Get the best title - prioritize English titles
-  const title = kitsuManga?.attributes.canonicalTitle || 
-               kitsuManga?.attributes.titles.en || 
-               kitsuManga?.attributes.titles.en_jp || 
-               "Unknown Title"
+  const title = kitsuManga ? getBestKitsuTitle(kitsuManga) : "Unknown Title"
 
   // Prepare manga data for library operations - use MangaDx ID as primary identifier
   const mangaData = {
@@ -252,31 +247,43 @@ export default function MangaDetailPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-900 text-white">
-      <MangaBanner coverUrl={coverUrl} title={title} />
-      <main className="container mx-auto p-4 -mt-20 md:-mt-24 relative z-10">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          {/* Sidebar */}
-          <aside className="lg:col-span-3">
-            <MangaHeader
-              kitsuManga={kitsuManga}
-              mangaData={mangaData}
-              mangaSlug={mangaDxId}
-              chapters={chapters}
-            />
-          </aside>
-          
-          {/* Main Content */}
-          <div className="lg:col-span-9 space-y-8">
-            <MangaDetails
-              kitsuManga={kitsuManga}
-              chapters={chapters}
-              mangaSlug={mangaDxId}
-            />
-            <MangaComments
-              mangaId={mangaDxId}
-              mangaTitle={title}
-            />
+      <MangaBanner 
+        coverUrl={coverUrl} 
+        posterUrl={posterUrl}
+        title={title} 
+      />
+      
+      <main className="relative z-10">
+        {/* Hero Section with Poster and Quick Info */}
+        <div className="container mx-auto px-4 -mt-32 relative z-20">
+          <div className="flex flex-col lg:flex-row gap-8 items-start">
+            {/* Poster and Quick Actions */}
+            <div className="lg:w-80 flex-shrink-0">
+              <MangaHeader
+                kitsuManga={kitsuManga}
+                mangaData={mangaData}
+                mangaSlug={mangaDxId}
+                chapters={chapters}
+              />
+            </div>
+            
+            {/* Main Content */}
+            <div className="flex-1 min-w-0">
+              <MangaDetails
+                kitsuManga={kitsuManga}
+                chapters={chapters}
+                mangaSlug={mangaDxId}
+              />
+            </div>
           </div>
+        </div>
+
+        {/* Comments Section */}
+        <div className="container mx-auto px-4 py-16">
+          <MangaComments
+            mangaId={mangaDxId}
+            mangaTitle={title}
+          />
         </div>
       </main>
     </div>

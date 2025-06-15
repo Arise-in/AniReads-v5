@@ -7,7 +7,25 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Chapter } from '@/lib/mangadx-api'
 import { KitsuManga, getBestKitsuTitle } from '@/lib/kitsu-api'
-import { Star, Calendar, User, Book, List, ChevronDown, BookOpen, Share2, Bookmark as BookmarkIcon, Download, Clock, Eye, TrendingUp, Filter } from 'lucide-react'
+import { 
+  Star, 
+  Calendar, 
+  User, 
+  Book, 
+  List, 
+  ChevronDown, 
+  BookOpen, 
+  Share2, 
+  Bookmark as BookmarkIcon, 
+  Download, 
+  Clock, 
+  Eye, 
+  TrendingUp,
+  Play,
+  Users,
+  Award,
+  Globe
+} from 'lucide-react'
 import { useBookmark } from '@/hooks/useBookmark'
 import { toast } from 'sonner'
 
@@ -17,13 +35,71 @@ interface MangaDetailsProps {
   mangaSlug: string
 }
 
+function QuickStats({ kitsuManga, chapters }: { kitsuManga: KitsuManga | null; chapters: Chapter[] }) {
+  if (!kitsuManga) return null
+
+  const stats = [
+    {
+      label: 'Rating',
+      value: kitsuManga.attributes.averageRating ? `${Number.parseFloat(kitsuManga.attributes.averageRating).toFixed(1)}` : 'N/A',
+      subtitle: '/5.0',
+      icon: Star,
+      color: 'text-yellow-400',
+      bgColor: 'bg-yellow-500/10'
+    },
+    {
+      label: 'Chapters',
+      value: (kitsuManga.attributes.chapterCount || chapters.length || 0).toString(),
+      subtitle: 'Available',
+      icon: Book,
+      color: 'text-blue-400',
+      bgColor: 'bg-blue-500/10'
+    },
+    {
+      label: 'Status',
+      value: kitsuManga.attributes.status?.charAt(0).toUpperCase() + kitsuManga.attributes.status?.slice(1) || 'Unknown',
+      subtitle: 'Publication',
+      icon: Clock,
+      color: 'text-green-400',
+      bgColor: 'bg-green-500/10'
+    },
+    {
+      label: 'Popularity',
+      value: kitsuManga.attributes.popularityRank ? `#${kitsuManga.attributes.popularityRank}` : 'N/A',
+      subtitle: 'Ranking',
+      icon: TrendingUp,
+      color: 'text-orange-400',
+      bgColor: 'bg-orange-500/10'
+    }
+  ]
+
+  return (
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+      {stats.map((stat) => (
+        <Card key={stat.label} className="bg-gray-800/40 border-gray-700/50 backdrop-blur-sm">
+          <CardContent className="p-4 text-center">
+            <div className={`inline-flex items-center justify-center w-10 h-10 rounded-full ${stat.bgColor} mb-3`}>
+              <stat.icon className={`w-5 h-5 ${stat.color}`} />
+            </div>
+            <div className="text-2xl font-bold text-white">
+              {stat.value}
+              {stat.subtitle && <span className="text-sm text-gray-400 ml-1">{stat.subtitle}</span>}
+            </div>
+            <div className="text-sm text-gray-400 font-medium">{stat.label}</div>
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  )
+}
+
 function Synopsis({ description, genres }: { description: string; genres: string[] }) {
   const [isExpanded, setIsExpanded] = useState(false)
   const isLongDescription = description.length > 400
 
   return (
-    <Card className="bg-gradient-to-br from-gray-800/40 to-gray-900/60 border-gray-700/30 backdrop-blur-sm">
-      <CardHeader className="pb-4">
+    <Card className="bg-gray-800/40 border-gray-700/50 backdrop-blur-sm">
+      <CardHeader>
         <CardTitle className="text-white flex items-center gap-3 text-xl">
           <div className="p-2 bg-red-500/20 rounded-lg">
             <Book className="w-5 h-5 text-red-400" />
@@ -40,7 +116,7 @@ function Synopsis({ description, genres }: { description: string; genres: string
             dangerouslySetInnerHTML={{ __html: description }}
           />
           {!isExpanded && isLongDescription && (
-            <div className="absolute bottom-0 left-0 w-full h-16 bg-gradient-to-t from-gray-900/80 via-gray-900/40 to-transparent pointer-events-none" />
+            <div className="absolute bottom-0 left-0 w-full h-16 bg-gradient-to-t from-gray-800/40 via-gray-800/20 to-transparent pointer-events-none" />
           )}
         </div>
         
@@ -128,7 +204,7 @@ function ChapterList({ chapters, mangaSlug, mangaTitle }: { chapters: Chapter[];
 
   if (chapters.length === 0) {
     return (
-      <Card className="bg-gradient-to-br from-gray-800/40 to-gray-900/60 border-gray-700/30 backdrop-blur-sm">
+      <Card className="bg-gray-800/40 border-gray-700/50 backdrop-blur-sm">
         <CardContent className="text-center py-16">
           <div className="max-w-sm mx-auto space-y-4">
             <div className="p-4 bg-gray-700/30 rounded-full w-fit mx-auto">
@@ -145,8 +221,8 @@ function ChapterList({ chapters, mangaSlug, mangaTitle }: { chapters: Chapter[];
   }
 
   return (
-    <Card className="bg-gradient-to-br from-gray-800/40 to-gray-900/60 border-gray-700/30 backdrop-blur-sm">
-      <CardHeader className="pb-4">
+    <Card className="bg-gray-800/40 border-gray-700/50 backdrop-blur-sm">
+      <CardHeader>
         <div className="flex items-center justify-between flex-wrap gap-4">
           <CardTitle className="text-white flex items-center gap-3 text-xl">
             <div className="p-2 bg-red-500/20 rounded-lg">
@@ -160,7 +236,6 @@ function ChapterList({ chapters, mangaSlug, mangaTitle }: { chapters: Chapter[];
             onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
             className="border-gray-600/50 text-gray-300 hover:border-red-500/50 hover:text-red-400 hover:bg-red-500/10 transition-all duration-200"
           >
-            <Filter className="w-4 h-4 mr-2" />
             {sortOrder === 'asc' ? 'Oldest First' : 'Newest First'}
           </Button>
         </div>
@@ -226,76 +301,6 @@ function ChapterList({ chapters, mangaSlug, mangaTitle }: { chapters: Chapter[];
             </Button>
           </div>
         )}
-      </CardContent>
-    </Card>
-  )
-}
-
-function StatsCard({ kitsuManga, chapters }: { kitsuManga: KitsuManga | null; chapters: Chapter[] }) {
-  if (!kitsuManga) return null
-
-  const stats = [
-    {
-      label: 'Rating',
-      value: kitsuManga.attributes.averageRating ? `${Number.parseFloat(kitsuManga.attributes.averageRating).toFixed(1)}` : 'N/A',
-      subtitle: kitsuManga.attributes.averageRating ? '/5.0' : '',
-      icon: Star,
-      color: 'text-yellow-400',
-      bgColor: 'bg-yellow-500/10'
-    },
-    {
-      label: 'Chapters',
-      value: (kitsuManga.attributes.chapterCount || chapters.length || 0).toString(),
-      subtitle: 'Available',
-      icon: Book,
-      color: 'text-blue-400',
-      bgColor: 'bg-blue-500/10'
-    },
-    {
-      label: 'Status',
-      value: kitsuManga.attributes.status?.charAt(0).toUpperCase() + kitsuManga.attributes.status?.slice(1) || 'Unknown',
-      subtitle: 'Publication',
-      icon: Clock,
-      color: 'text-green-400',
-      bgColor: 'bg-green-500/10'
-    },
-    {
-      label: 'Popularity',
-      value: kitsuManga.attributes.popularityRank ? `#${kitsuManga.attributes.popularityRank}` : 'N/A',
-      subtitle: 'Ranking',
-      icon: TrendingUp,
-      color: 'text-orange-400',
-      bgColor: 'bg-orange-500/10'
-    }
-  ]
-
-  return (
-    <Card className="bg-gradient-to-br from-gray-800/40 to-gray-900/60 border-gray-700/30 backdrop-blur-sm">
-      <CardHeader className="pb-4">
-        <CardTitle className="text-white flex items-center gap-3 text-xl">
-          <div className="p-2 bg-red-500/20 rounded-lg">
-            <TrendingUp className="w-5 h-5 text-red-400" />
-          </div>
-          Statistics
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {stats.map((stat) => (
-            <div key={stat.label} className={`relative overflow-hidden rounded-xl border border-gray-600/20 ${stat.bgColor} p-4 hover:border-gray-500/40 transition-all duration-200`}>
-              <div className="flex items-start justify-between">
-                <div className="space-y-1">
-                  <div className={`text-2xl font-bold text-white`}>
-                    {stat.value}
-                    {stat.subtitle && <span className="text-sm text-gray-400 ml-1">{stat.subtitle}</span>}
-                  </div>
-                  <div className="text-sm text-gray-400 font-medium">{stat.label}</div>
-                </div>
-                <stat.icon className={`w-6 h-6 ${stat.color} opacity-80`} />
-              </div>
-            </div>
-          ))}
-        </div>
       </CardContent>
     </Card>
   )
@@ -406,7 +411,7 @@ export default function MangaDetails({ kitsuManga, chapters, mangaSlug }: MangaD
           {firstChapter && (
             <Button asChild size="lg" className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white shadow-lg hover:shadow-xl transition-all duration-200 px-8 py-3">
               <Link href={`/reader/${mangaSlug}/1?chapter=${firstChapter.id}`}>
-                <BookOpen className="w-5 h-5 mr-3" />
+                <Play className="w-5 h-5 mr-3" />
                 Start Reading
               </Link>
             </Button>
@@ -446,18 +451,13 @@ export default function MangaDetails({ kitsuManga, chapters, mangaSlug }: MangaD
         </div>
       </div>
 
-      {/* Content Grid */}
-      <div className="grid grid-cols-1 xl:grid-cols-4 gap-8">
-        {/* Main Content */}
-        <div className="xl:col-span-3 space-y-8">
-          <Synopsis description={description} genres={genres} />
-          <ChapterList chapters={chapters} mangaSlug={mangaSlug} mangaTitle={title} />
-        </div>
+      {/* Quick Stats */}
+      <QuickStats kitsuManga={kitsuManga} chapters={chapters} />
 
-        {/* Sidebar */}
-        <div className="xl:col-span-1 space-y-6">
-          <StatsCard kitsuManga={kitsuManga} chapters={chapters} />
-        </div>
+      {/* Content Sections */}
+      <div className="space-y-8">
+        <Synopsis description={description} genres={genres} />
+        <ChapterList chapters={chapters} mangaSlug={mangaSlug} mangaTitle={title} />
       </div>
     </div>
   )
